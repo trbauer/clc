@@ -2,9 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 
 project(clc)
 
-set(VERSION_MAJOR 1)
-set(VERSION_MINOR 0)
-set(VERSION_PATCH 0)
+set(VERSION_STRING "1.0.0")
 
 if (${CMAKE_GENERATOR} MATCHES "Unix Makefiles")
   set(UNIX_MAKEFILE_GENERATOR 1)
@@ -13,10 +11,10 @@ elseif(${CMAKE_GENERATOR} MATCHES "Visual Studio")
 endif()
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(TARGET_MODIFIER "32")
-  set(PB_PATH_MODIFIER "x86")
+  set(TARGET_MODIFIER_PATH "x86")
 elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(TARGET_MODIFIER "64")
-  set(PB_PATH_MODIFIER "x64")
+  set(TARGET_MODIFIER_PATH "x64")
 else()
   message(FATAL_ERROR "unexpected platform")
 endif()
@@ -27,4 +25,9 @@ find_package(OpenCL REQUIRED)
 
 include_directories(${OpenCL_INCLUDE_DIR})
 add_executable(${PROJECT_NAME} src/clc.cpp)
+add_definitions(-DVERSION_STRING="${VERSION_STRING}")
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    OUTPUT_NAME                                "clc${TARGET_MODIFIER}"
+  )
 target_link_libraries(${PROJECT_NAME} ${OpenCL_LIBRARIES})

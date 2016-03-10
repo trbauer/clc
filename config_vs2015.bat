@@ -1,5 +1,5 @@
 @echo off
-set BUILD_ROOT=builds\vs2013-
+set BUILD_ROOT=builds\vs2015-
 
 IF "%1"=="/h" goto :HELP
 IF "%1"=="/H" goto :HELP
@@ -16,8 +16,8 @@ IF EXIST "%BUILD_DIR%" (
 )
 md %BUILD_DIR%
 pushd %BUILD_DIR%
-echo [cmake -G "Visual Studio 12" ..\..]
-cmake -G "Visual Studio 12" ..\..
+echo [cmake -G "Visual Studio 14" ..\..]
+cmake -G "Visual Studio 14" ..\..
 popd
 
 set BUILD_DIR=%BUILD_ROOT%64
@@ -28,8 +28,8 @@ IF EXIST "%BUILD_DIR%" (
 )
 md %BUILD_DIR%
 pushd %BUILD_DIR%
-echo [cmake -G "Visual Studio 12 Win64" ..\..]
-cmake -G "Visual Studio 12 Win64" ..\..
+echo [cmake -G "Visual Studio 14 Win64" ..\..]
+cmake -G "Visual Studio 14 Win64" ..\..
 popd
 
 :SUCCESS

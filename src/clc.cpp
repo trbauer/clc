@@ -91,7 +91,7 @@ struct Opts {
 
 static void printUsage() {
     const char *msg =
-        "OpenCL Offline Compiler\n"
+        "OpenCL Offline Compiler (" VERSION_STRING ")\n"
         "usage: clc [OPTS] ARGS\n"
         "where [OPTS]\n"
         " -d=DEV          targets device with a substring in it's name\n"
