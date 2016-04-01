@@ -156,12 +156,12 @@ static Opts parseOpts(int argc, const char **argv)
             badArg("unexpected verbosity option");
 
         // build options
-        } else if (argeq("-b=")) {
-            const char *str = argv[ai] + 3;
-            opts.args.emplace_back(argv[ai]);
+        } else if (argpfx("-b=")) {
+            opts.buildOpts.emplace_back(argv[ai] + 3);
             ai++;
         } else if (argpfx("-b")) {
             badArg("must be of the form -b=...");
+
         // -d=device selection
         } else if (argpfx("-d=")) {
             const char *str = argv[ai] + 3;
