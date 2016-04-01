@@ -1,0 +1,1 @@
+builds\vs2015-32\Debug\clc32.exe %*

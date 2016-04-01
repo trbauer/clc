@@ -1,4 +1,4 @@
-#include "shared.h"
+#include "examples/shared.h"
 
 kernel void krnl(global float *out, global struct value *roots)
 {

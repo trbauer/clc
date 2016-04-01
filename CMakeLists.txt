@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 
 project(clc)
 
-set(VERSION_STRING "1.0.0")
+set(VERSION_STRING "1.0.1")
 
 if (${CMAKE_GENERATOR} MATCHES "Unix Makefiles")
   set(UNIX_MAKEFILE_GENERATOR 1)

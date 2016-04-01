@@ -7,6 +7,8 @@
 #include <iomanip>
 #include <fstream>
 #include <vector>
+#include <algorithm>
+#include <iterator>
 #ifdef _WIN32
 #include <Windows.h>
 #include <malloc.h>
@@ -44,7 +46,11 @@
     _buf[_ebuflen - 1] = 0; \
     F((std::string)_buf)
 
+static std::string g_exe;
+
 void fatalMessage(const std::string &str) {
+    fputs(g_exe.c_str(), stdout);
+    fputs(": ", stdout);
     fputs(str.c_str(), stderr);
     if (str.length() > 0 && str[str.length() - 1] != '\n')
         fputc('\n', stderr);
@@ -85,25 +91,27 @@ struct Opts {
     std::string                output;
     std::vector<std::string>   buildOpts;
     int                        verbosity = 0;
+    bool                       listDevices = false;
 };
 
 
-
-static void printUsage() {
-    const char *msg =
+static void printUsage(FILE *stream) {
+    fprintf(stream,
         "OpenCL Offline Compiler (" VERSION_STRING ")\n"
-        "usage: clc [OPTS] ARGS\n"
+        "usage: %s [OPTS] ARGS\n"
         "where [OPTS]\n"
         " -d=DEV          targets device with a substring in it's name\n"
         " -b=BUILD-OPTS   adds a build option (e.g. -b=-DTILE=32)\n"
         " -q/-v/-v2       quiet/verbose/debug\n"
+        " -h=d            list devices\n"
         "[ARGS]           is list of compilation units (.cl files)\n"
         "\n"
         "EXAMPLES:\n"
-        " % clc foo.cl        saves foo.bin as the output for the default device\n"
-        " % clc -d=Intel ...  selects a device containing \"Intel\" in it's CL_DEVICE_NAME\n"
-        "";
-    fputs(msg, stderr);
+        " %% clc foo.cl        saves foo.bin as the output for the default device\n"
+        " %% clc -d=Intel ...  selects a device containing \"Intel\" in it's CL_DEVICE_NAME\n"
+        "",
+        g_exe.c_str());
+
 }
 
 static Opts parseOpts(int argc, const char **argv)
@@ -116,37 +124,45 @@ static Opts parseOpts(int argc, const char **argv)
         return (strcmp(argv[ai], pfx) == 0);
     };
     auto badArg = [&](const char *msg) {
-        std::string str = "";
+        std::string str = g_exe;
+        str += ": ";
         str = str + argv[ai] + ": " + msg + "\n";
         fatalMessage(msg);
-        printUsage();
+        printUsage(stderr);
         exit(EXIT_FAILURE);
     };
 
     Opts opts;
     for (; ai < argc;) {
-        if (argpfx("--help") || argpfx("-h")) {
-            printUsage();
+        if (argeq("--help") || argeq("-h")) {
+            printUsage(stdout);
             exit(EXIT_SUCCESS);
-        } else if (argeq("-q") || argeq("-v-1")) {
+
+        } else if (argeq("-h=d")) {
+            opts.listDevices = true;
+            ai++;
+
+        // verbosity
+        } else if (argeq("-q") || argeq("-v-1") || argeq("-v=-1")) {
             opts.verbosity = -1;
             ai++;
-        } else if (argeq("-v") || argeq("-v1")) {
+        } else if (argeq("-v") || argeq("-v1") || argeq("-v=1")) {
             opts.verbosity = 1;
             ai++;
-        } else if (argeq("-v2")) {
+        } else if (argeq("-v2") || argeq("-v=2")) {
             opts.verbosity = 2;
             ai++;
         } else if (argpfx("-v")) {
             badArg("unexpected verbosity option");
 
+        // build options
         } else if (argeq("-b=")) {
             const char *str = argv[ai] + 3;
             opts.args.emplace_back(argv[ai]);
             ai++;
         } else if (argpfx("-b")) {
             badArg("must be of the form -b=...");
-
+        // -d=device selection
         } else if (argpfx("-d=")) {
             const char *str = argv[ai] + 3;
             if (opts.device.length() > 0) {
@@ -157,7 +173,6 @@ static Opts parseOpts(int argc, const char **argv)
         } else if (argpfx("-d")) {
             badArg("must be of the form -d=...");
 
-
         } else if (argpfx("-o=")) {
             if (opts.output.length() > 0) {
                 badArg("argument respecified");
@@ -166,7 +181,6 @@ static Opts parseOpts(int argc, const char **argv)
             ai++;
         } else if (argpfx("-o")) {
             badArg("must be of the form -o=...");
-
 
         } else if (!argeq("-") && argpfx("-")) {
             // - is output
@@ -222,6 +236,174 @@ static cl::Device findDevice(const Opts &opts)
     return matching[0];
 }
 
+static void emitProperty(const char *prop)
+{
+    std::cout << "  " << prop << ": ";
+    for (int i = 0, len = 48 - (int)strlen(prop); i < len; i++)
+        std::cout << ' ';
+
+}
+template <typename T>
+static void emitPropertyIntegralUnits(const char *prop, const T &val, const char *units)
+{
+    emitProperty(prop);
+    std::cout << val;
+    if (units && *units)
+        std::cout << " " << units;
+    std::cout << "\n";
+}
+template <typename T>
+static void emitPropertyIntegralBytes(const char *prop, T val)
+{
+    const char *units = "B";
+    if (val % (1024 * 1024) == 0) {
+        val = (val >> 20);
+        units = "MB";
+    } else if (val % 1024 == 0) {
+        val = (val >> 10);
+        units = "KB";
+    }
+    emitPropertyIntegralUnits(prop, val, units);
+}
+static void emitBoolProperty(const char *prop, cl_bool val)
+{
+    emitProperty(prop);
+    std::cout << (val ? "CL_TRUE" : "CL_FALSE") << "\n";
+}
+#define EMIT_DEVICE_PROPERTY_UNITS(SYM,UNITS)  emitPropertyIntegralUnits(#SYM, d.getInfo<SYM>(), UNITS)
+#define EMIT_DEVICE_PROPERTY_MEM(SYM)  emitPropertyIntegralBytes(#SYM, d.getInfo<SYM>())
+#define EMIT_DEVICE_PROPERTY_BOOL(SYM)  emitBoolProperty(#SYM, d.getInfo<SYM>())
+
+
+static void listDevices(const Opts &opts)
+{
+    std::vector<cl::Platform> ps;
+    cl::Platform::get(&ps);
+    for (auto &p : ps) {
+        std::vector<cl::Device> ds;
+        p.getDevices(CL_DEVICE_TYPE_ALL, &ds);
+
+        for (auto &d : ds) {
+            std::cout << "DEVICE: \"" << d.getInfo<CL_DEVICE_NAME>() << "\"";
+            std::cout << "\n";
+            if ( opts.verbosity > 0) {
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_VERSION,nullptr);
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_VENDOR,nullptr);
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DRIVER_VERSION,nullptr);
+                emitProperty("CL_DEVICE_TYPE");
+                switch (d.getInfo<CL_DEVICE_TYPE>()) {
+                case CL_DEVICE_TYPE_CPU: std::cout << "CL_DEVICE_TYPE_CPU"; break;
+                case CL_DEVICE_TYPE_GPU: std::cout << "CL_DEVICE_TYPE_GPU"; break;
+                case CL_DEVICE_TYPE_ACCELERATOR: std::cout << "CL_DEVICE_TYPE_ACCELERATOR"; break;
+                case CL_DEVICE_TYPE_DEFAULT: std::cout << "CL_DEVICE_TYPE_DEFAULT"; break;
+                default: std::cout << d.getInfo<CL_DEVICE_TYPE>() << "?"; break;
+                }
+                std::cout << "\n";
+                std::cout << "  COMPUTE:\n";
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_MAX_CLOCK_FREQUENCY,"MHz");
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_MAX_COMPUTE_UNITS, nullptr);
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_PROFILING_TIMER_RESOLUTION, "ns");
+                EMIT_DEVICE_PROPERTY_BOOL(CL_DEVICE_ENDIAN_LITTLE);
+                // EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_PRINTF_BUFFER_SIZE); (not supported
+
+                emitProperty("CL_DEVICE_SINGLE_FP_CONFIG"); {
+                    auto fpcfg = d.getInfo<CL_DEVICE_SINGLE_FP_CONFIG>();
+                    const char *sep = ""; // "|";
+                    if ((fpcfg & CL_FP_DENORM)) {
+                        std::cout << sep << "CL_FP_DENORM";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_INF_NAN)) {
+                        std::cout << sep << "CL_FP_INF_NAN";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_ROUND_TO_NEAREST)) {
+                        std::cout << sep << "CL_FP_ROUND_TO_NEAREST";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_ROUND_TO_ZERO)) {
+                        std::cout << sep << "CL_FP_ROUND_TO_ZERO";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_ROUND_TO_INF)) {
+                        std::cout << sep << "CL_FP_ROUND_TO_INF";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_FMA)) {
+                        std::cout << sep << "CL_FP_FMA";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT)) {
+                        std::cout << sep << "CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT";
+                        sep = "|";
+                    }
+                    if ((fpcfg & CL_FP_SOFT_FLOAT)) {
+                        std::cout << sep << "CL_FP_SOFT_FLOAT";
+                        sep = "|";
+                    }
+                    std::cout << "\n";
+                }
+
+                emitProperty("CL_DEVICE_QUEUE_PROPERTIES"); {
+                    const char *sep = ""; // "|";
+                    auto devq = d.getInfo<CL_DEVICE_QUEUE_PROPERTIES>();
+                    if ((devq & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE)) {
+                        std::cout << sep << "CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE";
+                        sep = "|";
+                    }
+                    if ((devq & CL_QUEUE_PROFILING_ENABLE)) {
+                        std::cout << sep << "CL_QUEUE_PROFILING_ENABLE";
+                        sep = "|";
+                    }
+                    std::cout << "\n";
+                }
+
+                std::cout << "  WORKGROUPS:\n";
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_MAX_WORK_GROUP_SIZE,"items");
+                auto dim = d.getInfo<CL_DEVICE_MAX_WORK_ITEM_SIZES>();
+                emitProperty("CL_DEVICE_MAX_WORK_ITEM_SIZES");
+                std::cout << dim[0];
+                for (size_t i = 1; i < dim.size(); i++) {
+                    std::cout << 'x' << dim[i];
+                }
+                std::cout << "\n";
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR,nullptr);
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT,nullptr);
+                std::cout << "  MEMORY:\n";
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_ADDRESS_BITS,"b");
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_MEM_BASE_ADDR_ALIGN);
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE);
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_LOCAL_MEM_SIZE);
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_GLOBAL_MEM_SIZE);
+                emitProperty("CL_DEVICE_GLOBAL_MEM_CACHE_TYPE");
+                switch (d.getInfo<CL_DEVICE_GLOBAL_MEM_CACHE_TYPE>()) {
+                case CL_NONE: std::cout << "CL_NONE"; break;
+                case CL_READ_ONLY_CACHE: std::cout << "CL_READ_ONLY_CACHE"; break;
+                case CL_READ_WRITE_CACHE: std::cout << "CL_READ_WRITE_CACHE"; break;
+                default: std::cout << d.getInfo<CL_DEVICE_GLOBAL_MEM_CACHE_TYPE>() << "?\n"; break;
+                }
+                std::cout << "\n";
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE);
+                EMIT_DEVICE_PROPERTY_MEM(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE);
+                std::cout << "  IMAGES:\n";
+                EMIT_DEVICE_PROPERTY_BOOL(CL_DEVICE_IMAGE_SUPPORT);
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE2D_MAX_HEIGHT,"px");
+                EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE2D_MAX_WIDTH,"px");
+                // EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE_PITCH_ALIGNMENT,nullptr); // OCL 2.0?
+                std::cout << "  EXTENSIONS:\n";
+                std::istringstream iss(d.getInfo<CL_DEVICE_EXTENSIONS>());
+                std::vector<std::string> tokens;
+                std::copy(std::istream_iterator<std::string>(iss),
+                    std::istream_iterator<std::string>(),
+                    std::back_inserter(tokens));
+                for (auto tk : tokens) {
+                    std::cout << "  " << tk << "\n";
+                }
+            }
+        }
+    }
+}
+
 static std::string readTextStream(
     const std::string &streamName,
     std::istream &is)
@@ -274,6 +456,13 @@ static void writeBinary(
 
 int main(int argc, const char **argv)
 {
+    g_exe = argv[0];
+    auto ix = g_exe.rfind('\\');
+    if (ix != std::string::npos)
+        g_exe = g_exe.substr(ix + 1);
+    else if ((ix = g_exe.rfind('/')) != std::string::npos)
+        g_exe = g_exe.substr(ix + 1);
+
     Opts opts = parseOpts(argc - 1, argv + 1);
     g_verbosity = opts.verbosity;
 
@@ -286,6 +475,14 @@ int main(int argc, const char **argv)
         bss << opts.buildOpts[i];
     }
     std::string buildOpts = bss.str();
+
+    if (opts.listDevices) {
+        listDevices(opts);
+        if (!opts.args.empty()) {
+            fatal("-h=d specified, ignorning arguments");
+        }
+        return 0;
+    }
 
     // load the source
     if (opts.args.empty()) {
@@ -354,7 +551,7 @@ int main(int argc, const char **argv)
                 // foo.cl
                 filename = arg0;
             }
-            auto ext = arg0.rfind(".cl");
+            auto ext = filename.rfind(".cl");
             if (ext != std::string::npos) {
                 filename = filename.substr(0, ext); // foo.cl -> foo
             }
@@ -362,12 +559,18 @@ int main(int argc, const char **argv)
         // foo -> foo.8086.bin
         std::stringstream ss;
         ss << filename << ".";
-        ss << std::hex << std::setfill('0') << std::setw(4) << dev.getInfo<CL_DEVICE_VENDOR_ID>();
-        ss << ".bin";
+        if (dev.getInfo<CL_DEVICE_VENDOR_ID>() == 0x10de) {
+            ss << "ptx";
+        } else if (dev.getInfo<CL_DEVICE_VENDOR_ID>() == 0x8086) {
+            ss << "elf";
+        } else {
+            ss << std::hex << std::setfill('0') << std::setw(4) << dev.getInfo<CL_DEVICE_VENDOR_ID>();
+            ss << "bin";
+        }
         opts.output = ss.str();
     }
 
-    if (opts.output == "-") {
+    if (opts.output == "--") {
         verbose("saving binary to stdout\n");
         writeBinary("", binPtrs[0], binSizes[0]);
     } else {
