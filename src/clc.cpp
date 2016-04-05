@@ -389,6 +389,10 @@ static void listDevices(const Opts &opts)
                 EMIT_DEVICE_PROPERTY_BOOL(CL_DEVICE_IMAGE_SUPPORT);
                 EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE2D_MAX_HEIGHT,"px");
                 EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE2D_MAX_WIDTH,"px");
+                // IF NVDA
+                // https://www.khronos.org/registry/cl/extensions/nv/cl_nv_device_attribute_query.txt
+                // e.g. CL_DEVICE_WARP_SIZE_NV
+
                 // EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_IMAGE_PITCH_ALIGNMENT,nullptr); // OCL 2.0?
                 std::cout << "  EXTENSIONS:\n";
                 std::istringstream iss(d.getInfo<CL_DEVICE_EXTENSIONS>());
