@@ -286,7 +286,7 @@ static void listDevices(const Opts &opts)
         for (auto &d : ds) {
             std::cout << "DEVICE: \"" << d.getInfo<CL_DEVICE_NAME>() << "\"";
             std::cout << "\n";
-            if ( opts.verbosity > 0) {
+            if (opts.verbosity > 0) {
                 EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_VERSION,nullptr);
                 EMIT_DEVICE_PROPERTY_UNITS(CL_DEVICE_VENDOR,nullptr);
                 EMIT_DEVICE_PROPERTY_UNITS(CL_DRIVER_VERSION,nullptr);
@@ -448,7 +448,7 @@ static void writeBinary(
     } else {
         std::ofstream os(streamName,std::ios::binary);
         if (!os.good()) {
-            fatal("%s: failed to open file", streamName.c_str());
+            fatal("%s: failed to open output file", streamName.c_str());
         }
         os.clear();
         os.write((const char *)bits, bitsLen);

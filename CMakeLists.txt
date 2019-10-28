@@ -4,11 +4,6 @@ project(clc)
 
 set(VERSION_STRING "1.0.1")
 
-if (${CMAKE_GENERATOR} MATCHES "Unix Makefiles")
-  set(UNIX_MAKEFILE_GENERATOR 1)
-elseif(${CMAKE_GENERATOR} MATCHES "Visual Studio")
-  set(MSVC_GENERATOR 1)
-endif()
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(TARGET_MODIFIER "32")
   set(TARGET_MODIFIER_PATH "x86")
